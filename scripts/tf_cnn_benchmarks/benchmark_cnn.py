@@ -53,7 +53,24 @@ import variable_mgr_util
 from cnn_util import log_fn
 from models import model_config
 from platforms import util as platforms_util
+import ctypes
 
+_cudart = ctypes.CDLL('libcudart.so')
+
+
+def cuda_start():
+    # As shown at http://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__PROFILER.html,
+    # the return value will unconditionally be 0. This check is just in case it changes in
+    # the future.
+    ret = _cudart.cudaProfilerStart()
+    if ret != 0:
+        raise Exception("cudaProfilerStart() returned %d" % ret)
+
+
+def cuda_stop():
+    ret = _cudart.cudaProfilerStop()
+    if ret != 0:
+        raise Exception("cudaProfilerStop() returned %d" % ret)
 
 _DEFAULT_NUM_BATCHES = 100
 
@@ -1673,6 +1690,7 @@ class BenchmarkCNN(object):
       while not done_fn():
         if local_step == 0:
           log_fn('Done warm up')
+          cuda_start()
           if execution_barrier:
             log_fn('Waiting for other replicas to finish warm up')
             sess.run([execution_barrier])
@@ -1702,6 +1720,8 @@ class BenchmarkCNN(object):
           sv.summary_computed(sess, summary_str)
         local_step += 1
       loop_end_time = time.time()
+      
+      cuda_stop()
       # Waits for the global step to be done, regardless of done_fn.
       if global_step_watcher:
         while not global_step_watcher.done():
